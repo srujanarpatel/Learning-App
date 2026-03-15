@@ -11,7 +11,7 @@ import videoRoutes from './modules/videos/videos.routes';
 const app = express();
 
 app.use(cors({
-  origin: ENV.CORS_ORIGIN,
+  origin: ENV.CORS_ORIGIN === '*' ? true : ENV.CORS_ORIGIN.split(','),
   credentials: true,
 }));
 

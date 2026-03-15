@@ -57,8 +57,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: true, // Must be true for sameSite: 'none'
+      sameSite: 'none',
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
@@ -111,6 +111,10 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     await pool.query('UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = ?', [rawToken]);
   }
 
-  res.clearCookie('refreshToken');
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none'
+  });
   res.json({ message: 'Logged out successfully' });
 };
