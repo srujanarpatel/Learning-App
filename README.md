@@ -77,3 +77,6 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:5000/api
 - Micro-interaction & macro-animations implemented effectively through premium Tailwind.
 - Refresh Token persistence & automatic refresh on unauthorized Axios interception.
 - Video progress auto-save locally to the MySQL database on backend.
+" Live Deployment "Links  
+Backend:" "https://learning-app-h1iq.onrender.com  
+Frontend:" "https://learning-jup7d0v9j-srujana-r-patel-s-projects.vercel.app  
