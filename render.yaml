@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: learning-app-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: DB_HOST
+        value: localhost
+      - key: DB_PORT
+        value: 3306
+      - key: DB_NAME
+        value: udemy_clone
+      - key: DB_USER
+        value: root
+      - key: DB_PASS
+        value: 
+      - key: JWT_SECRET
+        value: production_jwt_secret_123
+      - key: JWT_REFRESH_SECRET
+        value: production_refresh_secret_456
+      - key: CORS_ORIGIN
+        value: '*'
+      - key: COOKIE_DOMAIN
+        value: onrender.com
