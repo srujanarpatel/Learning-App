@@ -1,26 +1,67 @@
-import sqlite3 from 'sqlite3';
-import { open, Database } from 'sqlite';
+import initSqlJs from 'sql.js';
+import fs from 'fs';
+import path from 'path';
 
-let dbInstance: Database<sqlite3.Database, sqlite3.Statement> | null = null;
+let dbInstance: any = null;
+const DB_PATH = path.join(process.cwd(), 'database.sqlite');
 
-// Mock the mysql2 Pool interface mapping to SQLite outputs
 export const pool = {
   query: async (sqlText: string, params?: any[]) => {
     if (!dbInstance) throw new Error('DB not initialized');
     
-    // Convert MySQL IF(cond, true, false) to SQLite CASE WHEN cond THEN true ELSE false END
     let modifiedSql = sqlText.replace(/IF\(([^,]+),\s*([^,]+),\s*([^)]+)\)/g, 'CASE WHEN $1 THEN $2 ELSE $3 END');
-    // Convert MySQL NOW() to SQLite date('now') or datetime('now')
     modifiedSql = modifiedSql.replace(/NOW\(\)/g, "datetime('now')");
 
-    const method = modifiedSql.trim().toUpperCase().startsWith('SELECT') ? 'all' : 'run';
-    const result = await dbInstance[method](modifiedSql, params || []);
-    
-    if (method === 'all') {
-       return [result, []]; // Return array [rows, fields] like mysql2
-    } else {
-       // Insert or Update returning [ { insertId: x } ]
-       return [{ insertId: (result as any).lastID, affectedRows: (result as any).changes }];
+    try {
+      if (params && params.length > 0) {
+        const stmt = dbInstance.prepare(modifiedSql);
+        stmt.bind(params);
+        
+        const isSelect = modifiedSql.trim().toUpperCase().startsWith('SELECT');
+        
+        if (isSelect) {
+          const results = [];
+          while (stmt.step()) {
+            results.push(stmt.getAsObject());
+          }
+          stmt.free();
+          return [results, []];
+        } else {
+          stmt.step();
+          stmt.free();
+          saveDatabase();
+          // SQLite in WebAssembly doesn't easily expose last_insert_rowid without a direct function call
+          const [idResult] = dbInstance.exec("SELECT last_insert_rowid() as id");
+          const insertId = idResult ? idResult.values[0][0] : 0;
+          return [{ insertId, affectedRows: dbInstance.getRowsModified() }];
+        }
+      } else {
+        const isSelect = modifiedSql.trim().toUpperCase().startsWith('SELECT');
+        const result = dbInstance.exec(modifiedSql);
+        
+        if (isSelect) {
+          if (result.length === 0) return [[], []];
+          const columns = result[0].columns;
+          const values = result[0].values;
+          
+          const rows = values.map((valArray: any[]) => {
+            const obj: any = {};
+            columns.forEach((col: string, i: number) => {
+              obj[col] = valArray[i];
+            });
+            return obj;
+          });
+          return [rows, []];
+        } else {
+          saveDatabase();
+          const [idResult] = dbInstance.exec("SELECT last_insert_rowid() as id");
+          const insertId = idResult ? idResult.values[0][0] : 0;
+          return [{ insertId, affectedRows: dbInstance.getRowsModified() }];
+        }
+      }
+    } catch (err: any) {
+      console.error('SQL Execution Error:', err, modifiedSql);
+      throw err;
     }
   },
   getConnection: async () => {
@@ -30,17 +71,27 @@ export const pool = {
   }
 };
 
+const saveDatabase = () => {
+  if (dbInstance) {
+    const data = dbInstance.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  }
+};
+
 export const checkDbConnection = async () => {
   try {
-    dbInstance = await open({
-      filename: './database.sqlite',
-      driver: sqlite3.Database
-    });
+    const SQL = await initSqlJs();
+    
+    if (fs.existsSync(DB_PATH)) {
+      const filebuffer = fs.readFileSync(DB_PATH);
+      dbInstance = new SQL.Database(filebuffer);
+      console.log('Loaded existing SQLite Database');
+    } else {
+      dbInstance = new SQL.Database();
+      console.log('Created new SQLite Database');
+    }
 
-    console.log('SQLite Database connected successfully');
-
-    // Setup SQLite Schema mimicking MySQL
-    await dbInstance.exec(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
@@ -83,15 +134,6 @@ export const checkDbConnection = async () => {
         FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
       );
 
-      CREATE TABLE IF NOT EXISTS enrollments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        subject_id INTEGER NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
-      );
-
       CREATE TABLE IF NOT EXISTS video_progress (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
@@ -118,24 +160,26 @@ export const checkDbConnection = async () => {
     `);
 
     // Seed Data
-    const row = await dbInstance.get('SELECT COUNT(*) as count FROM subjects');
-    if (row.count === 0) {
-      await dbInstance.exec(`
+    const [rows]: any = await pool.query('SELECT COUNT(*) as count FROM subjects');
+    if (rows[0].count === 0) {
+      await pool.query(`
         INSERT INTO subjects (title, slug, description, is_published) VALUES 
         ('React Basics', 'react-basics', 'Learn the basics of React with hands-on examples.', 1);
-
+      `);
+      await pool.query(`
         INSERT INTO sections (subject_id, title, order_index) VALUES 
         (1, 'Introduction to React', 1),
         (1, 'Components & Props', 2);
-
+      `);
+      await pool.query(`
         INSERT INTO videos (section_id, title, description, youtube_url, order_index, duration_seconds) VALUES 
         (1, 'What is React?', 'An intro to the library.', 'https://www.youtube.com/embed/Tn6-PIqc4UM', 1, 300),
         (1, 'JSX Syntax', 'JSX explained in depth', 'https://www.youtube.com/embed/Tn6-PIqc4UM', 2, 400),
         (2, 'Functional Components', 'Create your first component', 'https://www.youtube.com/embed/Tn6-PIqc4UM', 1, 500);
       `);
       console.log('Seeded database with initial courses');
+      saveDatabase();
     }
-
   } catch (error) {
     console.error('Database connection failed:', error);
   }
