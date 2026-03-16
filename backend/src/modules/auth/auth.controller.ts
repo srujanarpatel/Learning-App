@@ -21,6 +21,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     if (error.code === 'ER_DUP_ENTRY') {
       res.status(409).json({ error: 'Email already exists' });
     } else {
+      console.error('Registration DB error:', error);
       res.status(500).json({ error: 'Database error' });
     }
   }
@@ -28,6 +29,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 export const login = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ error: 'Email and password are required' });
+    return;
+  }
   
   try {
     const [rows]: any = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
@@ -52,7 +57,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query(
       'INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, NOW())',
-      [user.id, refreshToken, expiresAt] // simplified to save raw token instead of hash for now, or you can hash it
+      [user.id, refreshToken, expiresAt.toISOString()] // simplified to save raw token instead of hash for now, or you can hash it
     );
 
     res.cookie('refreshToken', refreshToken, {
@@ -64,6 +69,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     res.json({ accessToken, user: { id: user.id, name: user.name, email: user.email } });
   } catch (error) {
+    console.error('Login DB error:', error);
     res.status(500).json({ error: 'Database error' });
   }
 };
@@ -97,6 +103,7 @@ export const refresh = async (req: Request, res: Response): Promise<void> => {
     
     res.json({ accessToken });
   } catch (error) {
+    console.error('Refresh DB error:', error);
     res.status(500).json({ error: 'Database error' });
   }
 };
